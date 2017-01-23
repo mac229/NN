@@ -11,8 +11,8 @@ public class Main {
     private static int[] b;
     private static final int PRIME_NUMBER = 1_100_009;// First Prime Number Greater Than Biggest Identifier
 
-    private static final int NUMBER_HASH_FUNCTION = 16;
-    private static final int NUMBER_ROW_PER_BAND = 4;
+    private static final int NUMBER_HASH_FUNCTION = 4;
+    private static final int NUMBER_ROW_PER_BAND = 2;
 
     private static void initializeHashFunctions(int universeSize) {
         a = new int[NUMBER_HASH_FUNCTION];
@@ -26,7 +26,7 @@ public class Main {
     }
 
     private static int getHash(int a, int b, int p, int input) {
-        long i = a * input;
+        long i = (long) a * input;
         long j = i + b;
         return (int) (j % p);
     }
@@ -40,6 +40,9 @@ public class Main {
         for (int songId : songs) {
             for (int i = 0; i < NUMBER_HASH_FUNCTION; i++) {
                 int hash = getHash(a[i], b[i], PRIME_NUMBER, songId);
+                if (hash < 0) {
+                    System.out.println("alarm");
+                }
                 minHashes.set(i, Math.min(hash, minHashes.get(i)));
             }
         }
@@ -77,7 +80,7 @@ public class Main {
         System.out.println("DONE");
     }
 
-    private static HashMap<Integer, HashMap<Integer, Double>> computeSimilarity(HashMap<Integer, HashSet<Integer>> NN,  HashMap<Integer, List<Integer>> signatures) {
+    private static HashMap<Integer, HashMap<Integer, Double>> computeSimilarity(HashMap<Integer, HashSet<Integer>> NN, HashMap<Integer, List<Integer>> signatures) {
         HashMap<Integer, HashMap<Integer, Double>> similarity = new HashMap<>();
 
         NN.entrySet().parallelStream().filter(n -> !n.getValue().isEmpty()).forEach(nn ->
@@ -190,7 +193,7 @@ public class Main {
                             builder.append(signatureMatrix.get(userId).get(band + j)).append(",");
                         }
 
-                        int hash = builder.hashCode();
+                        int hash = builder.toString().hashCode();
                         if (!bucket.containsKey(hash)) {
                             bucket.put(hash, new ArrayList<>());
                         }
@@ -231,7 +234,7 @@ public class Main {
 
                 for (Map.Entry<Integer, Double> u : sim.getValue().entrySet().stream().sorted(Map.Entry.<Integer, Double>comparingByValue().reversed()).limit(100).collect(Collectors.toList())) {
                     if (u.getValue() == 1) {
-                    //    continue;
+                        //    continue;
                     }
 
                     resultString += "\t" + u.getKey() + "\t" + new DecimalFormat("#.###").format(u.getValue()) + "\n";
