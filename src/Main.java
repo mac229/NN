@@ -2,7 +2,6 @@ import java.io.*;
 import java.text.DecimalFormat;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class Main {
 
@@ -18,7 +17,7 @@ public class Main {
         a = new int[NUMBER_HASH_FUNCTION];
         b = new int[NUMBER_HASH_FUNCTION];
 
-        Random rand = new Random(13);
+        Random rand = new Random();
         for (int i = 0; i < NUMBER_HASH_FUNCTION; i++) {
             a[i] = rand.nextInt(universeSize) + 1;
             b[i] = rand.nextInt(universeSize);
@@ -31,10 +30,10 @@ public class Main {
         return (int) (j % p);
     }
 
-    private static List<Integer> getMinHash(Set<Integer> songs) {
-        List<Integer> minHashes = new ArrayList<>(NUMBER_HASH_FUNCTION);
+    private static int[] getMinHash(Set<Integer> songs) {
+        int[] minHashes = new int[NUMBER_HASH_FUNCTION];
         for (int i = 0; i < NUMBER_HASH_FUNCTION; i++) {
-            minHashes.add(Integer.MAX_VALUE);
+            minHashes[i] = Integer.MAX_VALUE;
         }
 
         for (int songId : songs) {
@@ -43,7 +42,7 @@ public class Main {
                 if (hash < 0) {
                     System.out.println("alarm");
                 }
-                minHashes.set(i, Math.min(hash, minHashes.get(i)));
+                minHashes[i] = Math.min(hash, minHashes[i]);
             }
         }
         return minHashes;
@@ -57,26 +56,35 @@ public class Main {
         System.out.println("Users size " + users.size());
         System.out.println("Reading time " + (System.currentTimeMillis() - start));
 
-
         start = System.currentTimeMillis();
-        HashMap<Integer, List<Integer>> signatureMatrix = getSignatureMatrix(users);
+        HashMap<Integer, int[]> signatureMatrix = getSignatureMatrix(users);
         System.out.println("Signature time " + (System.currentTimeMillis() - start));
 
+        users.clear();
+        users = null;
+
         start = System.currentTimeMillis();
-        List<HashMap<Integer, List<Integer>>> buckets = getBuckets(signatureMatrix);
+        HashMap<Integer, Set<Integer>> buckets = getBuckets(signatureMatrix);
         System.out.println("Buckets time " + (System.currentTimeMillis() - start));
+        System.out.println("Buckets size " + buckets.size());
 
         start = System.currentTimeMillis();
-        HashMap<Integer, HashSet<Integer>> NN = initializeNN(signatureMatrix.keySet());
-        System.out.println("Fill NN time " + (System.currentTimeMillis() - start));
-        fillNN(NN, buckets);
+        Map<Integer, Set<Integer>> filtered = filter(buckets);
+        System.out.println("Filter time " + (System.currentTimeMillis() - start));
+        System.out.println("Filter size " + filtered.size());
+
+        buckets.clear();
+        buckets = null;
+
+        start = System.currentTimeMillis();
+        getNN(filtered);
         System.out.println("Fill NN time " + (System.currentTimeMillis() - start));
 
         start = System.currentTimeMillis();
-        HashMap<Integer, HashMap<Integer, Double>> similarity = computeSimilarity(NN, signatureMatrix);
+        //HashMap<Integer, HashMap<Integer, Double>> similarity = computeSimilarity(NN, signatureMatrix);
         System.out.println("Similarity time " + (System.currentTimeMillis() - start));
 
-        saveResults(similarity);
+        //saveResults(similarity);
         System.out.println("DONE");
     }
 
@@ -150,73 +158,76 @@ public class Main {
         return similarity;
     }
 
-    // <userId, set<nearest users>
     private static HashMap<Integer, HashSet<Integer>> initializeNN(Set<Integer> usersIds) {
-        HashMap<Integer, HashSet<Integer>> NN = new HashMap<>();
+        HashMap<Integer, HashSet<Integer>> NN = new HashMap<>(usersIds.size());
         for (int userId : usersIds) {
             NN.put(userId, new HashSet<>());
         }
         return NN;
     }
 
-    private static void fillNN(HashMap<Integer, HashSet<Integer>> NN, List<HashMap<Integer, List<Integer>>> buckets) {
-        int one = 0;
-        int size = 0;
-        for (HashMap<Integer, List<Integer>> bucket : buckets) {
-            size += bucket.entrySet().size();
-            for (Map.Entry<Integer, List<Integer>> hash : bucket.entrySet()) {
-                if (hash.getValue().size() > 1) {
-                    for (Integer userId : hash.getValue()) {
-                        NN.get(userId).addAll(hash.getValue());
-                    }
-                } else {
-                    one++;
+    private static Map<Integer, Set<Integer>> filter(Map<Integer, Set<Integer>> buckets) {
+        return buckets.entrySet().stream().filter(entry -> entry.getValue().size() > 1).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    // <userId, set<nearest users>
+    private static Map<Integer, Set<Integer>> getNN(Map<Integer, Set<Integer>> buckets) {
+        Map<Integer, Set<Integer>> nn = new HashMap<>();
+        long multi = 0;
+        HashSet<Integer> users = new HashSet<>();
+        for (Map.Entry<Integer, Set<Integer>> hash : buckets.entrySet()) {
+            for (Integer userId : hash.getValue()) {
+                if (nn.get(userId) == null) {
+                    nn.put(userId, new HashSet<>());
                 }
+                //nn.get(userId).addAll(hash.getValue());
+                users.addAll(hash.getValue());
             }
+
+            multi += hash.getValue().size();
         }
-        System.out.println(one + " / " + size);
+
+        System.out.println("multi " + multi);
+        System.out.println("users " + users.size());
+        System.out.println("nn " + nn.size());
+        return nn;
     }
 
     // <Hash, List of users>
-    private static List<HashMap<Integer, List<Integer>>> getBuckets(HashMap<Integer, List<Integer>> signatureMatrix) {
-        List<HashMap<Integer, List<Integer>>> buckets = new ArrayList<>();
+    private static HashMap<Integer, Set<Integer>> getBuckets(HashMap<Integer, int[]> signatureMatrix) {
         int size = NUMBER_HASH_FUNCTION / NUMBER_ROW_PER_BAND;
-        IntStream.range(0, size).parallel().forEach(i ->
-                {
-                    System.out.println(i);
-                    int band = NUMBER_ROW_PER_BAND * i;
-                    HashMap<Integer, List<Integer>> bucket = new HashMap<>();
-                    StringBuilder builder = new StringBuilder();
-                    for (Integer userId : signatureMatrix.keySet()) {
-                        builder.setLength(0);
-                        for (int j = 0; j < NUMBER_ROW_PER_BAND; j++) {
-                            builder.append(signatureMatrix.get(userId).get(band + j)).append(",");
-                        }
-
-                        int hash = builder.toString().hashCode();
-                        if (!bucket.containsKey(hash)) {
-                            bucket.put(hash, new ArrayList<>());
-                        }
-
-                        bucket.get(hash).add(userId);
-                    }
-                    System.out.println("finished for " + i);
-
-                    synchronized (sync) {
-                        buckets.add(bucket);
-                    }
+        int counter = 0;
+        HashMap<Integer, Set<Integer>> buckets = new HashMap<>();
+        for (int i = 0; i < size; i++) {
+            System.out.println(i);
+            int band = NUMBER_ROW_PER_BAND * i;
+            StringBuilder builder = new StringBuilder();
+            for (Integer userId : signatureMatrix.keySet()) {
+                builder.setLength(0);
+                for (int j = 0; j < NUMBER_ROW_PER_BAND; j++) {
+                    builder.append(signatureMatrix.get(userId)[band + j]).append(",");
                 }
-        );
+
+                int hash = builder.toString().hashCode();
+
+                if (!buckets.containsKey(hash)) {
+                    buckets.put(hash, new HashSet<>());
+                }
+
+                buckets.get(hash).add(userId);
+                counter++;
+            }
+        }
 
         return buckets;
     }
 
     // <userId, List of hashes>
-    private static HashMap<Integer, List<Integer>> getSignatureMatrix(Map<Integer, HashSet<Integer>> users) {
-        HashMap<Integer, List<Integer>> signatureMatrix = new HashMap<>();
+    private static HashMap<Integer, int[]> getSignatureMatrix(Map<Integer, HashSet<Integer>> users) {
+        HashMap<Integer, int[]> signatureMatrix = new HashMap<>();
         users.entrySet().parallelStream().forEach(user ->
         {
-            List<Integer> hash = getMinHash(user.getValue());
+            int[] hash = getMinHash(user.getValue());
             synchronized (sync) {
                 signatureMatrix.put(user.getKey(), hash);
             }
